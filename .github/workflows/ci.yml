@@ -1,0 +1,105 @@
+# =============================================================
+# TaskFlow · Integración Continua (Clase 4)
+# Va en la RAÍZ del repositorio: .github/workflows/ci.yml
+#
+# Se ejecuta en cada pull request hacia main y en cada push a main.
+# Jobs:  api  ─┐
+#              ├─► docker-build   (solo si los dos primeros pasan)
+#        web  ─┘
+# =============================================================
+name: CI
+
+# ---------- 1) TRIGGERS: cuándo se ejecuta ----------
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:            # botón "Run workflow" en la pestaña Actions
+
+# Si llega un push nuevo al mismo PR, cancela la ejecución anterior (ahorra minutos)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Menor privilegio: el GITHUB_TOKEN de este workflow solo puede leer el código
+permissions:
+  contents: read
+
+# ---------- 2) JOBS: corren en paralelo, cada uno en su propia VM limpia ----------
+jobs:
+
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api        # todos los "run" se ejecutan dentro de api/
+    # ---------- 3) STEPS: se ejecutan en orden ----------
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js 22 con caché de npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json   # ruta desde la RAÍZ del repo
+
+      - name: Instalar dependencias (exactas del package-lock.json)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm run test:ci
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js 22 con caché de npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Build de producción
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:3000
+
+  docker-build:
+    name: docker-build
+    needs: [api, web]                 # no gastamos minutos en Docker si los tests fallan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Build de la imagen de la API
+        run: docker build -t taskflow-api:ci ./api
+
+      - name: Build de la imagen web
+        run: docker build -t taskflow-web:ci --build-arg VITE_API_URL=http://localhost:3000 ./web
+
+      - name: Imágenes construidas
+        run: docker image ls "taskflow-*"

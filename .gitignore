@@ -1,0 +1,9 @@
+# Raíz del repositorio de TaskFlow
+node_modules/
+dist/
+*.log
+
+# Variables de entorno reales: nunca al repositorio
+.env
+.env.*
+!.env.example

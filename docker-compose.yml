@@ -1,0 +1,75 @@
+# =============================================================
+# TaskFlow · docker-compose.yml (Clase 3)
+# Va en la RAÍZ del repositorio, junto a las carpetas api/ y web/.
+#
+#   Copy-Item .env.example .env      # (bash: cp .env.example .env)
+#   docker compose up -d --build
+#   docker compose ps                # mongo healthy · api healthy · web running
+#   Abrir http://localhost:8080
+# =============================================================
+
+services:
+
+  # ---------- Paso 1 · Base de datos ----------
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?falta MONGO_USER en .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?falta MONGO_PASSWORD en .env}
+    volumes:
+      - mongo-data:/data/db                                 # volumen con nombre: los datos sobreviven a down/up
+      - ./mongo/init:/docker-entrypoint-initdb.d:ro         # seed opcional (solo corre la primera vez)
+    # Sin "ports": Mongo solo es visible dentro de la red taskflow_default.
+    # Para abrirlo con Compass en local, agregar temporalmente:
+    # ports:
+    #   - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------- Paso 2 · API ----------
+  api:
+    build: ./api                      # usa api/Dockerfile de la Clase 2
+    image: taskflow-api:dev           # nombre de la imagen construida
+    environment:
+      PORT: 3000
+      # El host ya no es localhost ni host.docker.internal: es "mongo", el nombre del servicio.
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/taskflow?authSource=admin
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    ports:
+      - "3000:3000"                   # el navegador llama a la API desde fuera de la red
+    depends_on:
+      mongo:
+        condition: service_healthy    # espera a que Mongo esté LISTO, no solo arrancado
+    healthcheck:
+      # node:22-alpine trae wget (BusyBox): no hay que instalar nada
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------- Paso 3 · Frontend ----------
+  web:
+    build:
+      context: ./web
+      args:
+        # Equivale a --build-arg. Sigue siendo localhost:3000 porque la petición
+        # sale del NAVEGADOR, no del contenedor web.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+    image: taskflow-web:dev
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+# Nivel superior (sin indentar): declara los volúmenes con nombre del proyecto.
+# Compose le antepone el nombre del proyecto: taskflow_mongo-data
+volumes:
+  mongo-data:
