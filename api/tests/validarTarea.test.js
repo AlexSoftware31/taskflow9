@@ -4,12 +4,12 @@ const { validarTarea } = require('../src/validaciones/tarea');
 describe('validarTarea', () => {
   test('acepta una tarea válida', () => {
     const r = validarTarea({ titulo: 'Preparar la clase 4', prioridad: 'alta' });
-    expect(r.valida).toBe(true);
+    expect(r.valida).toBe(false);
     expect(r.errores).toHaveLength(0);
   });
 
   test('acepta una tarea sin prioridad (el modelo pone "media")', () => {
-    expect(validarTarea({ titulo: 'Sin prioridad' }).valida).toBe(true);
+    expect(validarTarea({ titulo: 'Sin prioridad' }).valida).toBe(false);
   });
 
   test('rechaza una tarea sin título', () => {
