@@ -1,0 +1,61 @@
+# =============================================================
+# TaskFlow · docker-compose.prod.yml (Clase 5)
+# Igual que docker-compose.yml pero SIN build: descarga las imágenes
+# que publicó el workflow CD en GHCR.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#   Abrir http://localhost:8080
+#
+# Usar una versión concreta (rollback):  IMAGE_TAG=sha-abc1234  o  IMAGE_TAG=1.0.0
+# Requiere los paquetes públicos o: docker login ghcr.io -u <usuario>  (token con read:packages)
+# =============================================================
+
+services:
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?falta MONGO_USER en .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?falta MONGO_PASSWORD en .env}
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/${GHCR_OWNER:-alexsoftware31}/taskflow-api:${IMAGE_TAG:-latest}
+    environment:
+      PORT: 3000
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/taskflow?authSource=admin
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    # VITE_API_URL ya viene horneado en la imagen (variable VITE_API_URL del environment "production")
+    image: ghcr.io/${GHCR_OWNER:-alexsoftware31}/taskflow-web:${IMAGE_TAG:-latest}
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

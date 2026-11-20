@@ -1,0 +1,99 @@
+# =============================================================
+# TaskFlow · Despliegue Continuo: publicar imágenes (Clase 5)
+# Va en la RAÍZ del repositorio: .github/workflows/cd.yml
+#
+# Se ejecuta cuando llega código a main (merge de un PR) o al crear un tag vX.Y.Z.
+# La protección de rama de main garantiza que ese código ya pasó el CI en el PR.
+#
+#   matrix ─► api  ─► ghcr.io/<owner>/taskflow-api:{latest, sha-xxxxxxx, X.Y.Z}
+#          └► web  ─► ghcr.io/<owner>/taskflow-web:{latest, sha-xxxxxxx, X.Y.Z}
+# =============================================================
+name: CD - Publicar imágenes
+
+# ---------- 1) TRIGGERS ----------
+on:
+  push:
+    branches: [main]            # merge de un PR a main
+    tags: ['v*.*.*']            # release: git tag v1.0.0 && git push --tags
+  workflow_dispatch:
+
+# Nunca dos publicaciones a la vez sobre la misma rama/tag (no se cancela: termina la que empezó)
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+# Menor privilegio: leer el código y ESCRIBIR paquetes (GHCR) con el GITHUB_TOKEN
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Environment: de aquí salen vars.* y secrets.* (Settings → Environments → production)
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, web]       # mismo job, una ejecución por carpeta
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar Buildx (necesario para caché y build-push)
+        uses: docker/setup-buildx-action@v3
+
+      # ---------- 2) LOGIN A LOS REGISTROS ----------
+      - name: Login a GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}      # lo crea GitHub en cada ejecución: no hay que configurarlo
+
+      # Opcional: Docker Hub con secrets propios.
+      # Solo corre si existe la variable DOCKERHUB_USERNAME en el environment.
+      - name: Login a Docker Hub (opcional)
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}   # Access Token de Docker Hub, NUNCA la contraseña
+
+      # ---------- 3) ESTRATEGIA DE TAGS ----------
+      - name: Calcular nombres, tags y labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # metadata-action pasa el nombre a minúsculas (GHCR lo exige)
+          images: |
+            ghcr.io/${{ github.repository_owner }}/taskflow-${{ matrix.service }}
+            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/taskflow-${{ matrix.service }},enable=${{ vars.DOCKERHUB_USERNAME != '' }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # ---------- 4) BUILD Y PUSH ----------
+      - name: Build y push de taskflow-${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}   # incluye org.opencontainers.image.source → vincula el paquete al repo
+          # Solo lo usa web/Dockerfile (Vite lo hornea en el JS). La API lo ignora.
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL || 'http://localhost:3000' }}
+          # Caché de capas entre ejecuciones (una por servicio)
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Resumen
+        run: |
+          echo "### taskflow-${{ matrix.service }} publicada" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
