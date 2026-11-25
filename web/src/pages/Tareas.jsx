@@ -35,7 +35,7 @@ export default function Tareas() {
 
   return (
     <section>
-      <h1>Tareas</h1>
+      <h1>Tareas en la nube</h1>
       <p className="resumen">{tareas.length} tareas · {pendientes} pendientes</p>
 
       <form onSubmit={agregar} className="formulario">
