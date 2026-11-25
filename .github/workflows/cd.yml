@@ -97,3 +97,27 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------- 5) DESPLIEGUE AUTOMÁTICO (Clase 6) ----------
+  # Después de publicar las dos imágenes, avisa a Render para que descargue la nueva
+  # taskflow-api:latest. Vercel no lo necesita: se despliega solo con cada push a main.
+  deploy:
+    needs: publish                         # solo si api y web se publicaron
+    if: github.ref == 'refs/heads/main'    # no en los tags vX.Y.Z
+    runs-on: ubuntu-latest
+    environment: production                # de aquí salen RENDER_DEPLOY_HOOK y VITE_API_URL
+    steps:
+      - name: Avisar a Render (Deploy Hook)
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}   # el secret entra por env, nunca escrito en run
+
+      - name: Esperar a que la API responda /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "$API_URL/health"; then echo; echo "API arriba"; exit 0; fi
+            echo "Intento $i: aun no responde, esperando 10 s..."; sleep 10
+          done
+          echo "La API no respondio en 5 minutos"; exit 1
+        env:
+          API_URL: ${{ vars.VITE_API_URL }}

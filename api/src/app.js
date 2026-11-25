@@ -8,7 +8,12 @@ const tareasRouter = require('./routes/tareas');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:8080,http://localhost:5173';
 
 const app = express();
-app.use(cors({ origin: CORS_ORIGIN.split(',').map((o) => o.trim()) }));
+// Clase 6: en Render, CORS_ORIGIN=https://taskflow-xxxx.vercel.app (varias URLs separadas por coma).
+// Se quitan espacios y la barra final: el navegador envía el Origin sin "/".
+const origenes = CORS_ORIGIN.split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+app.use(cors({ origin: origenes }));
 app.use(express.json());
 
 // Log sencillo de cada petición (se ve con: docker compose logs -f api)
