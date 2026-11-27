@@ -26,5 +26,17 @@ COPY --chown=node:node . .
 # La imagen oficial de Node trae el usuario "node": no corremos como root
 USER node
 
+# Clase 7: el commit desplegado. El CD lo pasa con --build-arg APP_VERSION=<sha>
+# y la API lo devuelve en GET /health (así el smoke test sabe qué versión está en línea).
+ARG APP_VERSION=local
+ENV APP_VERSION=$APP_VERSION
+
 EXPOSE 3000
+
+# Clase 7: health check de la imagen (docker ps → "healthy"). Usa /health (liveness):
+# si Mongo cae, reiniciar la API no lo arregla. wget viene en node:22-alpine (BusyBox).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD wget -qO- "http://localhost:${PORT:-3000}/health" > /dev/null || exit 1
+
+# Forma exec (JSON): node es el PID 1 y recibe SIGTERM directamente → apagado graceful
 CMD ["node", "src/server.js"]
