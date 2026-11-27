@@ -27,7 +27,9 @@ router.post('/', async (req, res, next) => {
     // Clase 4: se valida ANTES de tocar la base de datos (y así se puede testear sin Mongo)
     const { valida, errores } = validarTarea({ titulo, prioridad });
     if (!valida) return res.status(400).json({ error: errores[0], errores });
-    res.status(201).json(await Tarea.create({ titulo, prioridad }));
+    const tarea = await Tarea.create({ titulo, prioridad });
+    req.log.info({ tareaId: tarea._id }, 'Tarea creada');   // Clase 7: log de negocio con requestId
+    res.status(201).json(tarea);
   } catch (err) { next(err); }
 });
 
@@ -50,9 +52,6 @@ router.delete('/:id', validarId, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.use((err, req, res, next) => {
-  console.error('[taskflow-api]', err.message);
-  res.status(err.name === 'ValidationError' ? 400 : 500).json({ error: err.message });
-});
+// Clase 7: los errores (next(err)) los atiende el manejador global de app.js
 
 module.exports = router;
